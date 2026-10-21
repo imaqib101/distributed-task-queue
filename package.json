@@ -1,0 +1,14 @@
+{
+  "name": "distributed-task-queue",
+  "version": "1.0.0",
+  "description": "Distributed task queue with worker pool optimizations, DLQ metrics, and exponential backoff",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
