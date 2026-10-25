@@ -1,9 +1,16 @@
 import { DeadLetterQueue } from "./dlq";
-import { Task, TaskPriority, QueuePerformanceMetrics, ErrorHistoryEntry } from "./types";
+import {
+  Task,
+  TaskPriority,
+  QueuePerformanceMetrics,
+  ErrorHistoryEntry,
+  AdaptiveConcurrencyOptions
+} from "./types";
 
 export interface WorkerPoolOptions {
   concurrency?: number;
   drainTimeoutMs?: number;
+  adaptive?: AdaptiveConcurrencyOptions;
 }
 
 const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
@@ -26,12 +33,14 @@ export class TaskQueue<T = any> {
   private totalFailed = 0;
 
   public readonly dlq = new DeadLetterQueue<T>();
-  public readonly concurrency: number;
+  public concurrency: number;
   public readonly drainTimeoutMs: number;
+  private readonly adaptiveConfig?: AdaptiveConcurrencyOptions;
 
   constructor(options: WorkerPoolOptions = {}) {
     this.concurrency = options.concurrency ?? 5;
     this.drainTimeoutMs = options.drainTimeoutMs ?? 5000;
+    this.adaptiveConfig = options.adaptive;
   }
 
   enqueue(task: Task<T>): void {
@@ -44,6 +53,13 @@ export class TaskQueue<T = any> {
 
     this.queue.push(task);
     this.sortQueueByPriority();
+    this.checkAdaptiveScaling();
+  }
+
+  enqueueBatch(tasks: Task<T>[]): void {
+    for (const t of tasks) {
+      this.enqueue(t);
+    }
   }
 
   private sortQueueByPriority(): void {
@@ -53,6 +69,26 @@ export class TaskQueue<T = any> {
       if (pA !== pB) return pA - pB;
       return (a.enqueuedAt ?? 0) - (b.enqueuedAt ?? 0);
     });
+  }
+
+  private checkAdaptiveScaling(): void {
+    if (!this.adaptiveConfig) return;
+
+    const minC = this.adaptiveConfig.minConcurrency ?? 2;
+    const maxC = this.adaptiveConfig.maxConcurrency ?? 20;
+    const backlogThreshold = this.adaptiveConfig.backlogScaleThreshold ?? 10;
+    const errThreshold = this.adaptiveConfig.errorRateThreshold ?? 0.2;
+
+    const totalRecent = this.totalProcessed;
+    const errorRate = totalRecent > 0 ? this.totalFailed / totalRecent : 0;
+
+    if (errorRate > errThreshold) {
+      // Scale down to prevent cascading failure
+      this.concurrency = Math.max(minC, Math.floor(this.concurrency * 0.75));
+    } else if (this.queue.length > backlogThreshold && this.concurrency < maxC) {
+      // Scale up to chew through backlog
+      this.concurrency = Math.min(maxC, this.concurrency + 2);
+    }
   }
 
   get queueLength(): number {
@@ -68,25 +104,26 @@ export class TaskQueue<T = any> {
   }
 
   async processNext(handler: (task: Task<T>) => Promise<void>): Promise<boolean> {
-    if (this.queue.length === 0) return false;
-    if (this.activeWorkers >= this.concurrency) return false;
+    if (this.queue.length === 0 || this.activeWorkers >= this.concurrency) {
+      return false;
+    }
 
     const task = this.queue.shift()!;
     this.activeWorkers++;
-    const startTime = Date.now();
+    task.startedAt = Date.now();
 
     try {
       await handler(task);
-
-      const durationMs = Date.now() - startTime;
-      this.latencies.push(durationMs);
+      const latency = Date.now() - (task.enqueuedAt ?? Date.now());
+      this.latencies.push(latency);
+      this.taskErrorHistories.delete(task.id);
       this.totalProcessed++;
       this.totalSucceeded++;
-      this.taskErrorHistories.delete(task.id);
+      this.checkAdaptiveScaling();
       return true;
     } catch (err: any) {
-      const errorMsg = err?.message || "Task execution failed";
       task.retries++;
+      const errorMsg = err?.message || String(err);
 
       let history = this.taskErrorHistories.get(task.id);
       if (!history) {
@@ -104,8 +141,9 @@ export class TaskQueue<T = any> {
         this.taskErrorHistories.delete(task.id);
         this.totalProcessed++;
         this.totalFailed++;
+        this.checkAdaptiveScaling();
       } else {
-        // Calculate exponential backoff with jitter
+        // Exponential backoff with jitter
         const initialDelay = task.initialDelayMs ?? 50;
         const factor = task.backoffFactor ?? 2;
         const delay = initialDelay * Math.pow(factor, task.retries - 1);
@@ -134,8 +172,28 @@ export class TaskQueue<T = any> {
     }
   }
 
+  async drain(): Promise<void> {
+    this.isDraining = true;
+    const deadline = Date.now() + this.drainTimeoutMs;
+
+    while (this.activeWorkers > 0 || this.scheduledRetries > 0) {
+      if (Date.now() > deadline) {
+        throw new Error(`Drain timeout reached with ${this.activeWorkers} active workers still running`);
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+
   redriveDLQ(): number {
     const replayed = this.dlq.replayAll();
+    for (const t of replayed) {
+      this.enqueue(t);
+    }
+    return replayed.length;
+  }
+
+  redriveTransientDLQ(): number {
+    const replayed = this.dlq.replayBatch((e) => e.errorCategory === "transient");
     for (const t of replayed) {
       this.enqueue(t);
     }
@@ -149,25 +207,21 @@ export class TaskQueue<T = any> {
     const p50 = count > 0 ? sorted[Math.floor(count * 0.5)] : 0;
     const p95 = count > 0 ? sorted[Math.floor(count * 0.95)] : 0;
     const p99 = count > 0 ? sorted[Math.floor(count * 0.99)] : 0;
-    const avg = count > 0 ? Math.round(sorted.reduce((a, b) => a + b, 0) / count) : 0;
+    const avg = count > 0 ? sorted.reduce((sum, val) => sum + val, 0) / count : 0;
+
+    const utilizationRate =
+      this.concurrency > 0
+        ? Math.min(1.0, this.activeWorkers / this.concurrency)
+        : 0;
 
     return {
       totalProcessed: this.totalProcessed,
       totalSucceeded: this.totalSucceeded,
       totalFailed: this.totalFailed,
+      utilizationRate,
+      activeWorkers: this.activeWorkers,
+      currentConcurrency: this.concurrency,
       latencyPercentiles: { p50, p95, p99, avg }
     };
-  }
-
-  async drain(): Promise<void> {
-    this.isDraining = true;
-    const deadline = Date.now() + this.drainTimeoutMs;
-
-    while (this.activeWorkers > 0 || this.scheduledRetries > 0) {
-      if (Date.now() > deadline) {
-        throw new Error(`Drain timeout reached with ${this.activeWorkers} active workers still running`);
-      }
-      await new Promise((r) => setTimeout(r, 20));
-    }
   }
 }
