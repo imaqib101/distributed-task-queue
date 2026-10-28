@@ -204,9 +204,12 @@ export class TaskQueue<T = any> {
     const sorted = [...this.latencies].sort((a, b) => a - b);
     const count = sorted.length;
 
-    const p50 = count > 0 ? sorted[Math.floor(count * 0.5)] : 0;
-    const p95 = count > 0 ? sorted[Math.floor(count * 0.95)] : 0;
-    const p99 = count > 0 ? sorted[Math.floor(count * 0.99)] : 0;
+    // Nearest-rank percentile, consistent with WorkerPoolStatsTracker.
+    const percentile = (p: number): number =>
+      count > 0 ? sorted[Math.min(count - 1, Math.max(0, Math.ceil(p * count) - 1))] : 0;
+    const p50 = percentile(0.5);
+    const p95 = percentile(0.95);
+    const p99 = percentile(0.99);
     const avg = count > 0 ? sorted.reduce((sum, val) => sum + val, 0) / count : 0;
 
     const utilizationRate =
