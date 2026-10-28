@@ -24,21 +24,21 @@ export class DLQMonitor {
   push(msg: Omit<DLQMessage, "failedAt">): boolean {
     this.deadLetterQueue.push({
       ...msg,
-      failedAt: new Date().toISOString(),
+      failedAt: new Date().toISOString()
     });
     return this.deadLetterQueue.length >= this.alertThreshold;
   }
 
   getFailedMessages(queueName?: string): DLQMessage[] {
     if (!queueName) return [...this.deadLetterQueue];
-    return this.deadLetterQueue.filter(m => m.queueName === queueName);
+    return this.deadLetterQueue.filter((m) => m.queueName === queueName);
   }
 
   clearQueue(queueName?: string): void {
     if (!queueName) {
       this.deadLetterQueue = [];
     } else {
-      this.deadLetterQueue = this.deadLetterQueue.filter(m => m.queueName !== queueName);
+      this.deadLetterQueue = this.deadLetterQueue.filter((m) => m.queueName !== queueName);
     }
   }
 
@@ -66,18 +66,15 @@ export class DLQMonitor {
       total,
       byQueue,
       topErrors,
-      oldestFailedAt,
+      oldestFailedAt
     };
   }
 
-  async replayMessage(
-    id: string,
-    handler: (msg: DLQMessage) => Promise<void>
-  ): Promise<boolean> {
-    const index = this.deadLetterQueue.findIndex(m => m.id === id);
+  async replayMessage(id: string, handler: (msg: DLQMessage) => Promise<void>): Promise<boolean> {
+    const index = this.deadLetterQueue.findIndex((m) => m.id === id);
     if (index === -1) return false;
 
-    const [msg] = this.deadLetterQueue.splice(index, 1);
+    const msg = this.deadLetterQueue.splice(index, 1)[0]!;
     await handler(msg);
     return true;
   }

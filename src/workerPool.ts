@@ -178,7 +178,9 @@ export class TaskQueue<T = any> {
 
     while (this.activeWorkers > 0 || this.scheduledRetries > 0) {
       if (Date.now() > deadline) {
-        throw new Error(`Drain timeout reached with ${this.activeWorkers} active workers still running`);
+        throw new Error(
+          `Drain timeout reached with ${this.activeWorkers} active workers still running`
+        );
       }
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -206,16 +208,14 @@ export class TaskQueue<T = any> {
 
     // Nearest-rank percentile, consistent with WorkerPoolStatsTracker.
     const percentile = (p: number): number =>
-      count > 0 ? sorted[Math.min(count - 1, Math.max(0, Math.ceil(p * count) - 1))] : 0;
+      count > 0 ? (sorted[Math.min(count - 1, Math.max(0, Math.ceil(p * count) - 1))] ?? 0) : 0;
     const p50 = percentile(0.5);
     const p95 = percentile(0.95);
     const p99 = percentile(0.99);
     const avg = count > 0 ? sorted.reduce((sum, val) => sum + val, 0) / count : 0;
 
     const utilizationRate =
-      this.concurrency > 0
-        ? Math.min(1.0, this.activeWorkers / this.concurrency)
-        : 0;
+      this.concurrency > 0 ? Math.min(1.0, this.activeWorkers / this.concurrency) : 0;
 
     return {
       totalProcessed: this.totalProcessed,
