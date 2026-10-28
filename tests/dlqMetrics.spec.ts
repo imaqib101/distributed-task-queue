@@ -56,7 +56,7 @@ describe("DLQMonitor & Metrics / Replay", () => {
     expect(metrics.byQueue).toEqual({ q1: 2, q2: 1 });
     expect(metrics.topErrors).toEqual([
       { error: "TIMEOUT", count: 2 },
-      { error: "DB_ERROR", count: 1 },
+      { error: "DB_ERROR", count: 1 }
     ]);
     expect(metrics.oldestFailedAt).toBeDefined();
 

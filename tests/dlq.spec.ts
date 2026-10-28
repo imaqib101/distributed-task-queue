@@ -6,10 +6,13 @@ const task = (id: string, retries = 3): Task => ({ id, payload: { id }, retries,
 const history = [{ timestamp: 1, attempt: 1, message: "boom" }];
 
 describe("categorizeError", () => {
-  it.each(["Request timeout", "Rate limit hit", "ECONNRESET", "HTTP 503", "temporarily unavailable"])(
-    "treats %s as transient",
-    (msg) => expect(categorizeError(msg)).toBe("transient")
-  );
+  it.each([
+    "Request timeout",
+    "Rate limit hit",
+    "ECONNRESET",
+    "HTTP 503",
+    "temporarily unavailable"
+  ])("treats %s as transient", (msg) => expect(categorizeError(msg)).toBe("transient"));
 
   it("treats unrecognised errors as permanent", () => {
     expect(categorizeError("invalid payload")).toBe("permanent");
@@ -72,6 +75,10 @@ describe("DeadLetterQueue", () => {
     const dlq = new DeadLetterQueue();
     dlq.push(task("a"), new Error("x"), history);
     dlq.clear();
-    expect(dlq.getMetrics()).toMatchObject({ totalDead: 0, failureReasons: {}, retryDistribution: {} });
+    expect(dlq.getMetrics()).toMatchObject({
+      totalDead: 0,
+      failureReasons: {},
+      retryDistribution: {}
+    });
   });
 });

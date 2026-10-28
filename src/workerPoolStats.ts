@@ -44,7 +44,7 @@ export class WorkerPoolStatsTracker {
     const sorted = [...this.latencyWindow].sort((a, b) => a - b);
     const index = Math.ceil((p / 100) * sorted.length) - 1;
     const clampedIndex = Math.max(0, Math.min(index, sorted.length - 1));
-    return sorted[clampedIndex];
+    return sorted[clampedIndex] ?? 0;
   }
 
   snapshot(activeWorkers: number, queueDepth: number, dlqDepth: number): PoolSnapshot {
@@ -63,7 +63,7 @@ export class WorkerPoolStatsTracker {
       p95LatencyMs: this.getPercentile(95),
       p99LatencyMs: this.getPercentile(99),
       errorRate,
-      dlqDepth,
+      dlqDepth
     };
 
     this.snapshots.push(snap);
@@ -85,7 +85,9 @@ export class WorkerPoolStatsTracker {
 
     const warnings: string[] = [];
     if (s.errorRate > maxErrorRate) {
-      warnings.push(`Error rate ${(s.errorRate * 100).toFixed(1)}% exceeds threshold ${(maxErrorRate * 100).toFixed(1)}%`);
+      warnings.push(
+        `Error rate ${(s.errorRate * 100).toFixed(1)}% exceeds threshold ${(maxErrorRate * 100).toFixed(1)}%`
+      );
     }
     if (s.p95LatencyMs > maxP95Ms) {
       warnings.push(`P95 latency ${s.p95LatencyMs}ms exceeds threshold ${maxP95Ms}ms`);
@@ -97,7 +99,7 @@ export class WorkerPoolStatsTracker {
     return {
       healthy: warnings.length === 0,
       warnings,
-      snapshot: s,
+      snapshot: s
     };
   }
 
