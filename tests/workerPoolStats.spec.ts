@@ -20,12 +20,22 @@ describe("WorkerPoolStatsTracker", () => {
   });
 
   it("getPercentile returns correct p50/p95/p99 on known data", () => {
+    tracker = new WorkerPoolStatsTracker(100);
     for (let i = 1; i <= 100; i++) {
       tracker.recordTask(i, true);
     }
     expect(tracker.getPercentile(50)).toBe(50);
     expect(tracker.getPercentile(95)).toBe(95);
     expect(tracker.getPercentile(99)).toBe(99);
+  });
+
+  it("evicts the oldest samples once the window is full", () => {
+    for (let i = 1; i <= 100; i++) {
+      tracker.recordTask(i, true);
+    }
+    // window size is 10, so only samples 91..100 remain
+    expect(tracker.getPercentile(0)).toBe(91);
+    expect(tracker.getPercentile(100)).toBe(100);
   });
 
   it("snapshot returns correct PoolSnapshot shape", () => {
