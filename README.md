@@ -100,5 +100,6 @@ npm test
 ## 👤 Author
 
 **Mohammed Aqib**
+
 - GitHub: [@imaqib101](https://github.com/imaqib101)
 - Location: Bengaluru, India

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { WorkerPoolStatsTracker, PoolSnapshot } from "../src/workerPoolStats";
+import { WorkerPoolStatsTracker } from "../src/workerPoolStats";
 
 describe("WorkerPoolStatsTracker", () => {
   let tracker: WorkerPoolStatsTracker;
@@ -68,8 +68,8 @@ describe("WorkerPoolStatsTracker", () => {
     const health = tracker.getHealth(snap, { maxP95Ms: 1000, maxQueueDepth: 500 });
     expect(health.healthy).toBe(false);
     expect(health.warnings).toHaveLength(2);
-    expect(health.warnings.some(w => w.includes("P95 latency"))).toBe(true);
-    expect(health.warnings.some(w => w.includes("Queue depth"))).toBe(true);
+    expect(health.warnings.some((w) => w.includes("P95 latency"))).toBe(true);
+    expect(health.warnings.some((w) => w.includes("Queue depth"))).toBe(true);
   });
 
   it("reset clears state completely", () => {
