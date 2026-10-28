@@ -4,6 +4,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-20+-43853D?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Vitest](https://img.shields.io/badge/Vitest-Tested-729B1B?style=for-the-badge&logo=vitest&logoColor=white)](https://vitest.dev/)
 [![DLQ Observability](https://img.shields.io/badge/DLQ-Observability%20%26%20Redrive-informational?style=for-the-badge)](https://en.wikipedia.org/wiki/Dead_letter_queue)
+[![CI](https://github.com/imaqib101/distributed-task-queue/actions/workflows/ci.yml/badge.svg)](https://github.com/imaqib101/distributed-task-queue/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 A high-performance, resilient **Asynchronous Task Queue & Worker Pool** built in TypeScript. Features strict priority scheduling (`CRITICAL` ➔ `LOW`), bounded worker concurrency, exponential retry backoff with jitter, dead-letter queue (DLQ) categorization, and redrive capabilities.
@@ -89,11 +90,47 @@ console.log(`Dead Letters: ${dlqMetrics.totalDead}`);
 
 ---
 
-## 🧪 Testing
+## 📦 Installation
+
+Requires Node.js 20 or newer. The package is not published to npm yet; install from source:
 
 ```bash
-npm test
+git clone https://github.com/imaqib101/distributed-task-queue.git
+cd distributed-task-queue
+npm ci
+npm run build
 ```
+
+---
+
+## 📚 API
+
+Everything below is exported from the package entry point.
+
+| Export                   | Description                                                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TaskQueue`              | Priority queue and worker pool. Options: `concurrency` (default 5), `drainTimeoutMs` (default 5000), `adaptive` (min/max concurrency, backlog and error-rate thresholds). |
+| `DeadLetterQueue`        | Held by `queue.dlq`. `push`, `get`, `getMetrics`, `replay`, `replayAll`, `replayBatch`, `pruneOlderThan`, `clear`.                                                        |
+| `categorizeError`        | Classifies an error message as `"transient"` or `"permanent"`.                                                                                                            |
+| `DLQMonitor`             | Standalone message-oriented DLQ monitor with alert threshold, per-queue metrics and `replayMessage`.                                                                      |
+| `WorkerPoolStatsTracker` | Sliding-window latency percentiles, throughput and error rate snapshots, plus `getHealth` threshold checks.                                                               |
+
+`TaskQueue` methods: `enqueue`, `enqueueBatch`, `processNext`, `processAll`, `drain`, `redriveDLQ`, `redriveTransientDLQ`, `getPerformanceMetrics`, and the getters `queueLength`, `activeWorkersCount`, `scheduledRetriesCount`.
+
+---
+
+## 🛠️ Development
+
+| Script                  | Purpose                 |
+| ----------------------- | ----------------------- |
+| `npm run build`         | Compile to `dist/`      |
+| `npm run typecheck`     | Type-check without emit |
+| `npm run lint`          | ESLint                  |
+| `npm run format:check`  | Prettier check          |
+| `npm test`              | Run the Vitest suite    |
+| `npm run test:coverage` | Run tests with coverage |
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
 
 ---
 
