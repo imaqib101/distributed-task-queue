@@ -2,8 +2,43 @@
   "name": "distributed-task-queue",
   "version": "1.1.0",
   "description": "High-throughput asynchronous distributed task queue with priority scheduling, worker pool concurrency, and DLQ observability metrics",
+  "keywords": [
+    "task-queue",
+    "job-queue",
+    "worker-pool",
+    "priority-queue",
+    "dead-letter-queue",
+    "retry",
+    "backoff",
+    "typescript"
+  ],
+  "homepage": "https://github.com/imaqib101/distributed-task-queue#readme",
+  "bugs": {
+    "url": "https://github.com/imaqib101/distributed-task-queue/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imaqib101/distributed-task-queue.git"
+  },
+  "license": "MIT",
+  "author": "Mohammed Aqib",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
