@@ -179,4 +179,26 @@ export class StreamConsumerGroup<T = Record<string, unknown>> {
   snapshot(): ReadonlyArray<StreamMessage<T>> {
     return this.stream;
   }
+
+  /**
+   * Reset delivery cursor to beginning ('0') or to the end of the current stream ('$').
+   */
+  resetCursor(startId: "0" | "$" = "0"): void {
+    if (startId === "0") {
+      this.lastDeliveredIndex = -1;
+    } else {
+      this.lastDeliveredIndex = this.stream.length - 1;
+    }
+  }
+
+  /**
+   * Return list of active consumers currently holding pending messages.
+   */
+  getConsumers(): string[] {
+    const consumers = new Set<string>();
+    for (const entry of this.pending.values()) {
+      consumers.add(entry.consumer);
+    }
+    return Array.from(consumers);
+  }
 }

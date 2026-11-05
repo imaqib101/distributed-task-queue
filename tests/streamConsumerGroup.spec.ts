@@ -194,4 +194,38 @@ describe("StreamConsumerGroup — Redis Streams consumer group semantics", () =>
     expect(second.messages[0].data.value).toBe(300);
     expect(second.messages[1].data.value).toBe(400);
   });
+
+  // ── resetCursor & getConsumers ──────────────────────────────────────────
+
+  it("getConsumers returns active consumers with pending unacked messages", () => {
+    group.xadd({ value: 1 });
+    group.xadd({ value: 2 });
+    group.xadd({ value: 3 });
+
+    group.xreadgroup("worker-alpha", 1);
+    group.xreadgroup("worker-beta", 1);
+
+    expect(group.getConsumers().sort()).toEqual(["worker-alpha", "worker-beta"]);
+
+    const pending = group.xpending("worker-alpha");
+    group.xack("worker-alpha", pending.entries[0].messageId);
+
+    expect(group.getConsumers()).toEqual(["worker-beta"]);
+  });
+
+  it("resetCursor resets delivery cursor to allow replay from beginning", () => {
+    group.xadd({ value: 10 });
+    group.xadd({ value: 20 });
+
+    const first = group.xreadgroup("w1", 2);
+    expect(first.messages).toHaveLength(2);
+
+    const empty = group.xreadgroup("w1", 2);
+    expect(empty.messages).toHaveLength(0);
+
+    group.resetCursor("0");
+    const replayed = group.xreadgroup("w2", 2);
+    expect(replayed.messages).toHaveLength(2);
+    expect(replayed.messages[0].data.value).toBe(10);
+  });
 });
