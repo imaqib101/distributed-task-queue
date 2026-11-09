@@ -228,4 +228,81 @@ describe("StreamConsumerGroup — Redis Streams consumer group semantics", () =>
     expect(replayed.messages).toHaveLength(2);
     expect(replayed.messages[0].data.value).toBe(10);
   });
+
+  // ── getLag ──────────────────────────────────────────────────────────────
+
+  it("getLag accurately tracks undelivered message backlog", () => {
+    expect(group.getLag()).toBe(0);
+
+    group.xadd({ value: 1 });
+    group.xadd({ value: 2 });
+    group.xadd({ value: 3 });
+    expect(group.getLag()).toBe(3);
+
+    group.xreadgroup("w1", 1);
+    expect(group.getLag()).toBe(2);
+
+    group.xreadgroup("w1", 2);
+    expect(group.getLag()).toBe(0);
+
+    group.xadd({ value: 4 });
+    expect(group.getLag()).toBe(1);
+  });
+
+  // ── xtrim ───────────────────────────────────────────────────────────────
+
+  it("xtrim limits stream length and adjusts cursor", () => {
+    for (let i = 1; i <= 5; i++) {
+      group.xadd({ value: i });
+    }
+    expect(group.xlen()).toBe(5);
+
+    // Read 2 messages (cursor at index 1)
+    group.xreadgroup("w1", 2);
+
+    // Trim to 3 messages (drops index 0 and 1)
+    const trimmed = group.xtrim(3);
+    expect(trimmed).toBe(2);
+    expect(group.xlen()).toBe(3);
+
+    // Reading next should deliver value 3
+    const next = group.xreadgroup("w1", 1);
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0].data.value).toBe(3);
+  });
+
+  // ── xdel ────────────────────────────────────────────────────────────────
+
+  it("xdel removes message from stream and cleans up PEL", () => {
+    const id1 = group.xadd({ value: 100 });
+    const id2 = group.xadd({ value: 200 });
+
+    group.xreadgroup("w1", 1);
+    expect(group.xpending("w1").total).toBe(1);
+
+    const deleted = group.xdel(id1);
+    expect(deleted).toBe(true);
+    expect(group.xlen()).toBe(1);
+    expect(group.xpending("w1").total).toBe(0);
+
+    expect(group.xdel("non-existent-id")).toBe(false);
+  });
+
+  // ── xautoclaim ──────────────────────────────────────────────────────────
+
+  it("xautoclaim automatically reassigns idle pending messages with count limit", () => {
+    group.xadd({ value: 1 });
+    group.xadd({ value: 2 });
+    group.xadd({ value: 3 });
+
+    group.xreadgroup("stalled-worker", 3);
+    expect(group.xpending("stalled-worker").total).toBe(3);
+
+    // Auto-claim up to 2 idle messages
+    const { messages, claimedCount } = group.xautoclaim("recovering-worker", 0, 2);
+    expect(claimedCount).toBe(2);
+    expect(messages).toHaveLength(2);
+    expect(group.xpending("recovering-worker").total).toBe(2);
+    expect(group.xpending("stalled-worker").total).toBe(1);
+  });
 });

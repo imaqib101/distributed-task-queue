@@ -201,4 +201,76 @@ export class StreamConsumerGroup<T = Record<string, unknown>> {
     }
     return Array.from(consumers);
   }
+
+  /**
+   * Return the stream lag (number of messages produced but not yet delivered to this consumer group).
+   */
+  getLag(): number {
+    if (this.lastDeliveredIndex === null) {
+      return 0;
+    }
+    return Math.max(0, this.stream.length - 1 - this.lastDeliveredIndex);
+  }
+
+  /**
+   * Trim older messages from head of stream to limit stream length (like Redis XTRIM MAXLEN).
+   * Automatically adjusts lastDeliveredIndex cursor.
+   * Returns number of trimmed messages.
+   */
+  xtrim(maxLen: number): number {
+    const cap = Math.max(0, maxLen);
+    if (this.stream.length <= cap) {
+      return 0;
+    }
+    const toTrim = this.stream.length - cap;
+    this.stream.splice(0, toTrim);
+    if (this.lastDeliveredIndex !== null) {
+      this.lastDeliveredIndex = Math.max(-1, this.lastDeliveredIndex - toTrim);
+    }
+    return toTrim;
+  }
+
+  /**
+   * Delete a message from the stream and from PEL if present (like Redis XDEL).
+   */
+  xdel(messageId: string): boolean {
+    const idx = this.stream.findIndex((m) => m.id === messageId);
+    if (idx === -1) {
+      return false;
+    }
+    this.stream.splice(idx, 1);
+    if (this.lastDeliveredIndex !== null && idx <= this.lastDeliveredIndex) {
+      this.lastDeliveredIndex = Math.max(-1, this.lastDeliveredIndex - 1);
+    }
+    this.pending.delete(messageId);
+    return true;
+  }
+
+  /**
+   * Automatically claim idle pending messages from other consumers (like Redis 6.2+ XAUTOCLAIM).
+   */
+  xautoclaim(
+    newConsumer: string,
+    minIdleMs: number,
+    count = 100
+  ): { messages: StreamMessage<T>[]; claimedCount: number } {
+    const now = Date.now();
+    const claimed: StreamMessage<T>[] = [];
+
+    for (const [msgId, entry] of this.pending.entries()) {
+      if (claimed.length >= count) break;
+      if (entry.consumer !== newConsumer && now - entry.lastDeliveredAt >= minIdleMs) {
+        this.pending.set(msgId, {
+          ...entry,
+          consumer: newConsumer,
+          deliveryCount: entry.deliveryCount + 1,
+          lastDeliveredAt: now,
+        });
+        const msg = this.stream.find((m) => m.id === msgId);
+        if (msg) claimed.push(msg);
+      }
+    }
+
+    return { messages: claimed, claimedCount: claimed.length };
+  }
 }
