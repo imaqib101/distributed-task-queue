@@ -35,11 +35,35 @@ export interface XReadResult<T> {
   messages: StreamMessage<T>[];
 }
 
+export interface StreamInfo<T = Record<string, unknown>> {
+  length: number;
+  firstEntry: StreamMessage<T> | null;
+  lastEntry: StreamMessage<T> | null;
+  pendingCount: number;
+  consumerCount: number;
+  lag: number;
+}
+
+export interface ConsumerInfo {
+  name: string;
+  pendingCount: number;
+  idleMs: number;
+}
+
 let _seqCounter = 0;
 
 function makeId(): string {
   const ms = Date.now();
   return `${ms}-${_seqCounter++}`;
+}
+
+export function compareStreamIds(a: string, b: string): number {
+  const [msA, seqA] = a.split("-").map(Number);
+  const [msB, seqB] = b.split("-").map(Number);
+  if (msA !== msB) {
+    return msA - msB;
+  }
+  return seqA - seqB;
 }
 
 export class StreamConsumerGroup<T = Record<string, unknown>> {
@@ -272,5 +296,87 @@ export class StreamConsumerGroup<T = Record<string, unknown>> {
     }
 
     return { messages: claimed, claimedCount: claimed.length };
+  }
+
+  /**
+   * Inspect a slice of messages in stream order between startId and endId (inclusive).
+   * Supports "-" for beginning of stream and "+" for end of stream (like Redis XRANGE).
+   */
+  xrange(startId = "-", endId = "+", count?: number): StreamMessage<T>[] {
+    const results: StreamMessage<T>[] = [];
+    for (const msg of this.stream) {
+      if (count !== undefined && results.length >= count) {
+        break;
+      }
+      const afterStart = startId === "-" || compareStreamIds(msg.id, startId) >= 0;
+      const beforeEnd = endId === "+" || compareStreamIds(msg.id, endId) <= 0;
+      if (afterStart && beforeEnd) {
+        results.push(msg);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Inspect messages in reverse stream order between endId and startId (like Redis XREVRANGE).
+   */
+  xrevrange(endId = "+", startId = "-", count?: number): StreamMessage<T>[] {
+    const results: StreamMessage<T>[] = [];
+    for (let i = this.stream.length - 1; i >= 0; i--) {
+      if (count !== undefined && results.length >= count) {
+        break;
+      }
+      const msg = this.stream[i];
+      const beforeEnd = endId === "+" || compareStreamIds(msg.id, endId) <= 0;
+      const afterStart = startId === "-" || compareStreamIds(msg.id, startId) >= 0;
+      if (beforeEnd && afterStart) {
+        results.push(msg);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Return high-level stream metadata and metrics (like Redis XINFO STREAM).
+   */
+  xinfoStream(): StreamInfo<T> {
+    return {
+      length: this.stream.length,
+      firstEntry: this.stream.length > 0 ? this.stream[0] : null,
+      lastEntry: this.stream.length > 0 ? this.stream[this.stream.length - 1] : null,
+      pendingCount: this.pending.size,
+      consumerCount: this.getConsumers().length,
+      lag: this.getLag(),
+    };
+  }
+
+  /**
+   * Return consumer metadata and idle times for active consumers in this group (like Redis XINFO CONSUMERS).
+   */
+  xinfoConsumers(): ConsumerInfo[] {
+    const now = Date.now();
+    const consumerMap = new Map<string, { count: number; minLastDelivered: number }>();
+    for (const entry of this.pending.values()) {
+      const existing = consumerMap.get(entry.consumer);
+      if (!existing) {
+        consumerMap.set(entry.consumer, {
+          count: 1,
+          minLastDelivered: entry.lastDeliveredAt,
+        });
+      } else {
+        existing.count++;
+        existing.minLastDelivered = Math.min(existing.minLastDelivered, entry.lastDeliveredAt);
+      }
+    }
+
+    const infos: ConsumerInfo[] = [];
+    for (const [name, data] of consumerMap.entries()) {
+      infos.push({
+        name,
+        pendingCount: data.count,
+        idleMs: Math.max(0, now - data.minLastDelivered),
+      });
+    }
+    return infos;
   }
 }

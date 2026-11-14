@@ -305,4 +305,95 @@ describe("StreamConsumerGroup — Redis Streams consumer group semantics", () =>
     expect(group.xpending("recovering-worker").total).toBe(2);
     expect(group.xpending("stalled-worker").total).toBe(1);
   });
+
+  // ── xrange / xrevrange ──────────────────────────────────────────────────
+
+  it("xrange returns all messages with '-' and '+'", () => {
+    const id1 = group.xadd({ value: 100 });
+    const id2 = group.xadd({ value: 200 });
+    const id3 = group.xadd({ value: 300 });
+
+    const all = group.xrange();
+    expect(all).toHaveLength(3);
+    expect(all[0].id).toBe(id1);
+    expect(all[2].id).toBe(id3);
+  });
+
+  it("xrange filters messages within range and respects count limit", () => {
+    const id1 = group.xadd({ value: 10 });
+    const id2 = group.xadd({ value: 20 });
+    const id3 = group.xadd({ value: 30 });
+    const id4 = group.xadd({ value: 40 });
+
+    const sliced = group.xrange(id2, id3);
+    expect(sliced).toHaveLength(2);
+    expect(sliced[0].id).toBe(id2);
+    expect(sliced[1].id).toBe(id3);
+
+    const limited = group.xrange("-", "+", 2);
+    expect(limited).toHaveLength(2);
+    expect(limited[0].id).toBe(id1);
+    expect(limited[1].id).toBe(id2);
+  });
+
+  it("xrevrange returns messages in reverse order with optional count", () => {
+    const id1 = group.xadd({ value: 1 });
+    const id2 = group.xadd({ value: 2 });
+    const id3 = group.xadd({ value: 3 });
+
+    const reversed = group.xrevrange();
+    expect(reversed).toHaveLength(3);
+    expect(reversed[0].id).toBe(id3);
+    expect(reversed[1].id).toBe(id2);
+    expect(reversed[2].id).toBe(id1);
+
+    const revLimited = group.xrevrange(id3, id2, 1);
+    expect(revLimited).toHaveLength(1);
+    expect(revLimited[0].id).toBe(id3);
+  });
+
+  // ── xinfoStream / xinfoConsumers ────────────────────────────────────────
+
+  it("xinfoStream reports correct stream stats, boundaries, lag, and counts", () => {
+    const emptyInfo = group.xinfoStream();
+    expect(emptyInfo.length).toBe(0);
+    expect(emptyInfo.firstEntry).toBeNull();
+    expect(emptyInfo.lastEntry).toBeNull();
+    expect(emptyInfo.pendingCount).toBe(0);
+    expect(emptyInfo.lag).toBe(0);
+
+    const id1 = group.xadd({ value: 11 });
+    const id2 = group.xadd({ value: 22 });
+    const id3 = group.xadd({ value: 33 });
+
+    group.xreadgroup("worker-1", 1);
+
+    const info = group.xinfoStream();
+    expect(info.length).toBe(3);
+    expect(info.firstEntry?.id).toBe(id1);
+    expect(info.lastEntry?.id).toBe(id3);
+    expect(info.pendingCount).toBe(1);
+    expect(info.consumerCount).toBe(1);
+    expect(info.lag).toBe(2);
+  });
+
+  it("xinfoConsumers reports per-consumer pending count and idle time", () => {
+    group.xadd({ value: 1 });
+    group.xadd({ value: 2 });
+    group.xadd({ value: 3 });
+
+    group.xreadgroup("worker-a", 2);
+    group.xreadgroup("worker-b", 1);
+
+    const consumers = group.xinfoConsumers();
+    expect(consumers).toHaveLength(2);
+
+    const cA = consumers.find((c) => c.name === "worker-a");
+    const cB = consumers.find((c) => c.name === "worker-b");
+
+    expect(cA?.pendingCount).toBe(2);
+    expect(cA?.idleMs).toBeGreaterThanOrEqual(0);
+    expect(cB?.pendingCount).toBe(1);
+    expect(cB?.idleMs).toBeGreaterThanOrEqual(0);
+  });
 });
